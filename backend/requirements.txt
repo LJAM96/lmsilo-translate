@@ -1,0 +1,21 @@
+# Web Framework
+flask>=3.0.0,<4.0.0
+flask-cors>=4.0.0,<5.0.0
+gunicorn>=21.0.0,<23.0.0
+
+# ML/Translation
+ctranslate2>=4.0.0,<5.0.0
+transformers>=4.35.0,<5.0.0
+huggingface_hub>=0.20.0,<1.0.0
+
+# Language Detection
+langdetect>=1.0.9,<2.0.0
+
+# PDF Processing
+PyPDF2>=3.0.0,<4.0.0
+pypdfium2>=4.0.0,<5.0.0
+reportlab>=4.0.0,<5.0.0
+
+# Async Processing
+celery[redis]>=5.3.0,<6.0.0
+redis>=5.0.0,<6.0.0
