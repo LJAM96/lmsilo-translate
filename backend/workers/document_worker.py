@@ -1,30 +1,74 @@
-"""Celery worker for document translation."""
+"""Celery worker for document translation - OPTIMIZED VERSION."""
 
 import json
 import time
 from datetime import datetime
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+import logging
 
 from workers.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+# ============= GLOBAL MODEL CACHE =============
+# Models are loaded once per worker process and reused
+_translator_cache: Dict[str, any] = {}
+_tokenizer_cache: Dict[str, any] = {}
+
+
+def get_cached_translator():
+    """Get or create cached translator instance."""
+    if "translator" not in _translator_cache:
+        import ctranslate2
+        from config import settings
+        
+        model_path = settings.model_dir / "nllb-ct2" / "JustFrederik_nllb-200-distilled-600M-ct2-float16"
+        if not model_path.exists():
+            raise ValueError("No model available")
+        
+        logger.info(f"Loading translator model (device={settings.device})...")
+        _translator_cache["translator"] = ctranslate2.Translator(
+            str(model_path),
+            device=settings.device,
+            compute_type=settings.compute_type,
+            inter_threads=4,  # Parallel threads
+            intra_threads=4,
+        )
+        logger.info("Translator model loaded and cached")
+    
+    return _translator_cache["translator"]
+
+
+def get_cached_tokenizer():
+    """Get or create cached tokenizer instance."""
+    if "tokenizer" not in _tokenizer_cache:
+        import transformers
+        logger.info("Loading tokenizer...")
+        _tokenizer_cache["tokenizer"] = transformers.AutoTokenizer.from_pretrained(
+            "facebook/nllb-200-distilled-600M"
+        )
+        logger.info("Tokenizer loaded and cached")
+    
+    return _tokenizer_cache["tokenizer"]
+
+
+# ============= BATCH SIZE CONFIG =============
+BATCH_SIZE = 32  # Translate 32 texts at once
+DETECTION_BATCH_SIZE = 100  # Detect language for 100 blocks at once
+PROGRESS_UPDATE_INTERVAL = 50  # Update DB every 50 blocks
 
 
 @celery_app.task(bind=True, name="process_document", queue="translate")
 def process_document(self, job_id: str):
-    """
-    Process a document translation job.
-    
-    1. Extract text blocks from document
-    2. Detect language for each block
-    3. Skip English, translate foreign languages
-    4. Output as JSON or CSV
-    """
+    """Process a document translation job with optimizations."""
     import asyncio
     asyncio.run(_process_document_async(job_id))
 
 
 async def _process_document_async(job_id: str):
-    """Async document processing."""
+    """Async document processing with batch optimizations."""
     from sqlalchemy import select
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
@@ -33,12 +77,10 @@ async def _process_document_async(job_id: str):
     from models.document import DocumentJob, DocumentStatus
     from services.extractors import get_extractor
     
-    # Create async engine
     engine = create_async_engine(settings.database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
-        # Get job
         result = await session.execute(
             select(DocumentJob).where(DocumentJob.id == job_id)
         )
@@ -50,81 +92,73 @@ async def _process_document_async(job_id: str):
         try:
             start_time = time.time()
             
-            # Update status
+            # ===== STAGE 1: EXTRACTION =====
             job.status = DocumentStatus.EXTRACTING
             job.started_at = datetime.utcnow()
             await session.commit()
             
-            # Extract text blocks
             extractor = get_extractor(job.file_type)
             blocks = list(extractor.extract(job.file_path))
             job.total_blocks = len(blocks)
             await session.commit()
             
-            # Detect languages
+            logger.info(f"Extracted {len(blocks)} blocks from {job.original_filename}")
+            
+            # ===== STAGE 2: PARALLEL LANGUAGE DETECTION =====
             job.status = DocumentStatus.DETECTING
             await session.commit()
             
-            from langdetect import detect
-            from nllb_lang_codes import get_nllb_code
-            
-            lang_counts: Dict[str, int] = defaultdict(int)
-            blocks_by_lang: Dict[str, List] = defaultdict(list)
-            
-            for block in blocks:
-                try:
-                    iso_code = detect(block.text)
-                    lang_counts[iso_code] += 1
-                    
-                    if iso_code == "en":
-                        # English - skip translation
-                        block.translated = None
-                        block.lang = "en"
-                    else:
-                        # Foreign - needs translation
-                        nllb_code = get_nllb_code(iso_code)
-                        block.lang = iso_code
-                        block.nllb_code = nllb_code or "eng_Latn"
-                        blocks_by_lang[iso_code].append(block)
-                except Exception:
-                    # Can't detect - assume English
-                    block.translated = None
-                    block.lang = "unknown"
+            blocks, lang_counts, blocks_by_lang = detect_languages_parallel(blocks)
             
             job.languages_found = dict(lang_counts)
-            job.blocks_skipped = lang_counts.get("en", 0)
+            job.blocks_skipped = lang_counts.get("en", 0) + lang_counts.get("unknown", 0)
             await session.commit()
             
-            # Translate foreign blocks
+            logger.info(f"Languages detected: {dict(lang_counts)}")
+            
+            # ===== STAGE 3: BATCH TRANSLATION =====
             job.status = DocumentStatus.TRANSLATING
             await session.commit()
             
             translated_count = 0
+            total_to_translate = sum(len(b) for b in blocks_by_lang.values())
+            
+            # Pre-load models (cached)
+            translator = get_cached_translator()
+            tokenizer = get_cached_tokenizer()
+            
             for lang, lang_blocks in blocks_by_lang.items():
-                # Batch translate blocks of same language
-                for block in lang_blocks:
-                    try:
-                        translation = await translate_text(
-                            block.text,
-                            block.nllb_code,
-                            job.target_lang,
-                        )
+                # Get NLLB source code
+                source_nllb = lang_blocks[0].nllb_code if lang_blocks else "eng_Latn"
+                
+                # Process in batches
+                for batch_start in range(0, len(lang_blocks), BATCH_SIZE):
+                    batch_end = min(batch_start + BATCH_SIZE, len(lang_blocks))
+                    batch = lang_blocks[batch_start:batch_end]
+                    
+                    # Batch translate
+                    texts = [b.text for b in batch]
+                    translations = translate_batch(
+                        texts, source_nllb, job.target_lang,
+                        translator, tokenizer
+                    )
+                    
+                    # Apply translations
+                    for block, translation in zip(batch, translations):
                         block.translated = translation
                         translated_count += 1
-                        
-                        # Update progress
+                    
+                    # Update progress (less frequently)
+                    if translated_count % PROGRESS_UPDATE_INTERVAL == 0:
                         job.processed_blocks = job.blocks_skipped + translated_count
                         job.progress = int((job.processed_blocks / job.total_blocks) * 100)
                         await session.commit()
-                    except Exception as e:
-                        block.translated = f"[Translation error: {str(e)}]"
             
             job.blocks_translated = translated_count
             
-            # Generate output
+            # ===== STAGE 4: OUTPUT =====
             output = generate_output(blocks, job.output_format)
             
-            # Save output file
             output_dir = settings.upload_dir / "documents" / "output"
             output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / f"{job.id}.{job.output_format}"
@@ -139,7 +173,8 @@ async def _process_document_async(job_id: str):
             job.progress = 100
             await session.commit()
             
-            # Log audit event
+            logger.info(f"Document {job.id} completed in {job.processing_time_ms}ms")
+            
             await log_audit_event(
                 session, job_id, "document_completed",
                 job.processing_time_ms, "success", None,
@@ -152,6 +187,7 @@ async def _process_document_async(job_id: str):
             )
             
         except Exception as e:
+            logger.error(f"Document {job_id} failed: {e}")
             job.status = DocumentStatus.FAILED
             job.error = str(e)
             job.completed_at = datetime.utcnow()
@@ -164,41 +200,75 @@ async def _process_document_async(job_id: str):
             raise
 
 
-async def translate_text(text: str, source_lang: str, target_lang: str) -> str:
-    """Translate text using NLLB model."""
-    import ctranslate2
-    import transformers
-    from config import settings
+def detect_languages_parallel(blocks) -> Tuple[List, Dict[str, int], Dict[str, List]]:
+    """Detect languages using parallel processing."""
+    from langdetect import detect
+    from nllb_lang_codes import get_nllb_code
     
-    # Get model path
-    model_path = settings.model_dir / "nllb-ct2" / "JustFrederik_nllb-200-distilled-600M-ct2-float16"
-    if not model_path.exists():
-        raise ValueError("No model available")
+    lang_counts: Dict[str, int] = defaultdict(int)
+    blocks_by_lang: Dict[str, List] = defaultdict(list)
     
-    # Load model (cached)
-    tokenizer = transformers.AutoTokenizer.from_pretrained("facebook/nllb-200-distilled-600M")
-    translator = ctranslate2.Translator(
-        str(model_path),
-        device=settings.device,
-        compute_type=settings.compute_type,
-    )
+    def detect_single(block):
+        try:
+            iso_code = detect(block.text)
+            return block, iso_code
+        except Exception:
+            return block, "unknown"
     
-    # Tokenize
+    # Use thread pool for parallel detection
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(detect_single, blocks))
+    
+    for block, iso_code in results:
+        lang_counts[iso_code] += 1
+        
+        if iso_code == "en" or iso_code == "unknown":
+            block.translated = None
+            block.lang = iso_code
+        else:
+            nllb_code = get_nllb_code(iso_code)
+            block.lang = iso_code
+            block.nllb_code = nllb_code or "eng_Latn"
+            blocks_by_lang[iso_code].append(block)
+    
+    return blocks, lang_counts, blocks_by_lang
+
+
+def translate_batch(
+    texts: List[str],
+    source_lang: str,
+    target_lang: str,
+    translator,
+    tokenizer,
+) -> List[str]:
+    """Translate multiple texts in a single batch for efficiency."""
+    if not texts:
+        return []
+    
+    # Tokenize all texts
     tokenizer.src_lang = source_lang
-    tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
+    all_tokens = []
+    for text in texts:
+        tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
+        all_tokens.append(tokens)
     
-    # Translate
+    # Batch translate
+    target_prefixes = [[target_lang]] * len(texts)
     results = translator.translate_batch(
-        [tokens],
-        target_prefix=[[target_lang]],
-        beam_size=5,
+        all_tokens,
+        target_prefix=target_prefixes,
+        beam_size=4,  # Reduced from 5 for speed
+        max_batch_size=BATCH_SIZE,
     )
     
-    # Decode
-    target_tokens = results[0].hypotheses[0][1:]
-    translation = tokenizer.decode(tokenizer.convert_tokens_to_ids(target_tokens))
+    # Decode all results
+    translations = []
+    for result in results:
+        target_tokens = result.hypotheses[0][1:]  # Skip language token
+        translation = tokenizer.decode(tokenizer.convert_tokens_to_ids(target_tokens))
+        translations.append(translation)
     
-    return translation
+    return translations
 
 
 def generate_output(blocks, output_format: str) -> str:
