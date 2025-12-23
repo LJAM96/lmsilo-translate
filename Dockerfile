@@ -117,6 +117,14 @@ autostart=true
 autorestart=true
 stdout_logfile=/var/log/supervisor/uvicorn.log
 stderr_logfile=/var/log/supervisor/uvicorn_error.log
+
+[program:celery]
+command=python -m celery -A backend.workers.celery_app worker -Q translate -c 1 --loglevel=info
+directory=/app
+autostart=true
+autorestart=true
+stdout_logfile=/var/log/supervisor/celery.log
+stderr_logfile=/var/log/supervisor/celery_error.log
 EOF
 
 # Create directories
