@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,10 +14,20 @@ from schemas.job import JobStatus, TranslationJobCreate, TranslationJobResponse
 
 router = APIRouter()
 
+# Initialize audit logger
+try:
+    import sys
+    sys.path.insert(0, "/app")
+    from shared.services.audit import AuditLogger
+    audit_logger = AuditLogger("translate")
+except ImportError:
+    audit_logger = None
+
 
 @router.post("", status_code=201, response_model=TranslationJobResponse)
 async def create_job(
-    request: TranslationJobCreate,
+    request_data: TranslationJobCreate,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -28,7 +38,7 @@ async def create_job(
     from models.database import Model
     
     # Get default model if not specified
-    model_id = request.model_id
+    model_id = request_data.model_id
     model_name = None
     
     if not model_id:
@@ -42,9 +52,9 @@ async def create_job(
     
     # Create job record
     job = TranslationJob(
-        text=request.text,
-        source_lang=request.source_lang,
-        target_lang=request.target_lang,
+        text=request_data.text,
+        source_lang=request_data.source_lang,
+        target_lang=request_data.target_lang,
         model_id=model_id,
         model_name=model_name,
         status=JobStatus.PENDING,
@@ -53,6 +63,25 @@ async def create_job(
     session.add(job)
     await session.commit()
     await session.refresh(job)
+    
+    # Log audit event
+    if audit_logger:
+        try:
+            await audit_logger.log(
+                session=session,
+                action="job_created",
+                request=request,
+                job_id=job.id,
+                model_used=model_name,
+                status="pending",
+                metadata={
+                    "source_lang": request_data.source_lang,
+                    "target_lang": request_data.target_lang,
+                    "text_length": len(request_data.text),
+                },
+            )
+        except Exception:
+            pass  # Don't fail job creation if audit fails
     
     # Queue for processing
     from workers.tasks import translate_text_task

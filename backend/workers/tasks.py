@@ -72,6 +72,13 @@ def translate_text_task(self, job_id: str):
                 job.processing_time_ms = int((time.time() - start_time) * 1000)
                 await session.commit()
                 
+                # Log audit event for completion
+                await log_audit_event(
+                    session, job_id, "job_completed", job.model_name,
+                    job.processing_time_ms, "success", None,
+                    {"translation_length": len(translation)}
+                )
+                
                 return {"status": "completed", "job_id": job_id}
                 
             except Exception as e:
@@ -79,6 +86,12 @@ def translate_text_task(self, job_id: str):
                 job.error = str(e)
                 job.completed_at = datetime.utcnow()
                 await session.commit()
+                
+                # Log audit event for failure
+                await log_audit_event(
+                    session, job_id, "job_failed", job.model_name,
+                    None, "failed", str(e), None
+                )
                 raise
     
     return asyncio.run(process())
@@ -145,3 +158,38 @@ async def perform_translation(
     )
     
     return translation, detected_lang
+
+
+async def log_audit_event(
+    session,
+    job_id: str,
+    action: str,
+    model_used: str | None,
+    processing_time_ms: int | None,
+    status: str,
+    error_message: str | None,
+    metadata: dict | None,
+):
+    """Log an audit event from the Celery worker."""
+    try:
+        import sys
+        sys.path.insert(0, "/app")
+        from shared.models.audit import AuditLog
+        from uuid import UUID
+        
+        audit = AuditLog(
+            service="translate",
+            action=action,
+            job_id=UUID(job_id) if job_id else None,
+            model_used=model_used,
+            processing_time_ms=processing_time_ms,
+            status=status,
+            error_message=error_message,
+            metadata=metadata,
+        )
+        session.add(audit)
+        await session.commit()
+    except ImportError:
+        pass  # Shared module not available
+    except Exception:
+        pass  # Don't fail job on audit logging error
