@@ -9,7 +9,7 @@ Main entry point for the translation API with:
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -94,11 +94,14 @@ import sys
 sys.path.insert(0, "/app")  # Add parent for shared imports
 try:
     from shared.api.audit import create_audit_router
-    from services.database import get_session
+    from shared.services.audit import AuditLogger
+    from services.database import get_session, async_session_maker
     audit_router = create_audit_router(get_session)
     app.include_router(audit_router, prefix="/api/audit", tags=["audit"])
+    audit_logger = AuditLogger("translate")
 except ImportError:
     logger.warning("Shared audit module not available")
+    audit_logger = None
 
 
 # Request/Response models
@@ -173,32 +176,56 @@ async def get_languages():
 
 
 @app.post("/translate", response_model=TranslateResponse)
-async def translate(request: TranslateRequest):
+async def translate(request_data: TranslateRequest, request: Request):
     """Translate a single text."""
+    import time
+    start_time = time.time()
+    
     try:
         # Import translation functions from the Flask app module
         from .app import translate_text_single, detect_language, get_nllb_code
         
-        text = request.text.strip()
+        text = request_data.text.strip()
         if not text:
             raise HTTPException(status_code=400, detail="Text is empty")
         
         # Auto-detect source language if not provided
-        if request.source_lang:
-            source_nllb = get_nllb_code(request.source_lang)
+        if request_data.source_lang:
+            source_nllb = get_nllb_code(request_data.source_lang)
             if not source_nllb:
-                raise HTTPException(status_code=400, detail=f"Unsupported source language: {request.source_lang}")
+                raise HTTPException(status_code=400, detail=f"Unsupported source language: {request_data.source_lang}")
         else:
             iso_code, source_nllb = detect_language(text)
             if not source_nllb:
                 raise HTTPException(status_code=400, detail="Could not detect source language")
         
-        translation = translate_text_single(text, source_nllb, request.target_lang)
+        translation = translate_text_single(text, source_nllb, request_data.target_lang)
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Log audit event for direct translation
+        if audit_logger:
+            try:
+                async with async_session_maker() as session:
+                    await audit_logger.log(
+                        session=session,
+                        action="direct_translation",
+                        request=request,
+                        processing_time_ms=processing_time_ms,
+                        status="success",
+                        metadata={
+                            "source_lang": source_nllb,
+                            "target_lang": request_data.target_lang,
+                            "text_length": len(text),
+                            "translation_length": len(translation),
+                        },
+                    )
+            except Exception:
+                pass  # Don't fail translation if audit fails
         
         return TranslateResponse(
             text=text,
             source_lang=source_nllb,
-            target_lang=request.target_lang,
+            target_lang=request_data.target_lang,
             translation=translation
         )
         
