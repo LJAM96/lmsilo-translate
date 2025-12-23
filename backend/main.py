@@ -41,6 +41,10 @@ async def lifespan(app: FastAPI):
         # Initialize local tables
         await init_db()
         
+        # Import models to ensure tables are created
+        from models.job import TranslationJob  # noqa
+        from models.document import DocumentJob  # noqa
+        
         # Try to init shared audit table
         try:
             import sys
@@ -88,6 +92,10 @@ app.include_router(models_router, prefix="/models", tags=["models"])
 # Include job queue routes
 from api.jobs import router as jobs_router
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+
+# Include document translation routes
+from api.documents import router as documents_router
+app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 
 # Include audit log routes
 import sys
