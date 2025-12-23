@@ -33,8 +33,25 @@ async def lifespan(app: FastAPI):
     
     # Initialize database tables
     try:
-        from services.database import init_db
+        from services.database import init_db, Base, engine
+        # Import models so they register with Base.metadata
+        from models.database import Model
+        from models.job import TranslationJob
+        
+        # Initialize local tables
         await init_db()
+        
+        # Try to init shared audit table
+        try:
+            import sys
+            sys.path.insert(0, "/app")
+            from shared.models.audit import AuditLog, Base as AuditBase
+            async with engine.begin() as conn:
+                await conn.run_sync(AuditBase.metadata.create_all)
+            logger.info("Audit table initialized")
+        except ImportError:
+            logger.warning("Shared audit module not available")
+        
         logger.info("Database initialized")
     except Exception as e:
         logger.warning(f"Database init skipped: {e}")

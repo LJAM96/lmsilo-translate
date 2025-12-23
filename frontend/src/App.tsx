@@ -19,7 +19,7 @@ function TranslateApp() {
         return false
     })
 
-    const [currentPage, setCurrentPage] = useState<'translate' | 'models'>('translate')
+    const [currentPage, setCurrentPage] = useState<'translate' | 'models' | 'jobs' | 'settings'>('translate')
     const [sourceText, setSourceText] = useState('')
     const [translatedText, setTranslatedText] = useState('')
     const [sourceLang, setSourceLang] = useState('auto')
@@ -142,9 +142,21 @@ function TranslateApp() {
                                     </button>
                                     <button
                                         onClick={() => setCurrentPage('models')}
-                                        className="px-3 py-1.5 text-sm rounded-lg bg-accent/10 text-accent"
+                                        className={`px-3 py-1.5 text-sm rounded-lg ${currentPage === 'models' ? 'bg-accent/10 text-accent' : 'text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800'}`}
                                     >
                                         Models
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage('jobs')}
+                                        className={`px-3 py-1.5 text-sm rounded-lg ${currentPage === 'jobs' ? 'bg-accent/10 text-accent' : 'text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800'}`}
+                                    >
+                                        Jobs
+                                    </button>
+                                    <button
+                                        onClick={() => setCurrentPage('settings')}
+                                        className={`px-3 py-1.5 text-sm rounded-lg ${currentPage === 'settings' ? 'bg-accent/10 text-accent' : 'text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800'}`}
+                                    >
+                                        Settings
                                     </button>
                                 </nav>
                             </div>
@@ -158,6 +170,78 @@ function TranslateApp() {
                     </div>
                 </header>
                 <Models />
+            </div>
+        )
+    }
+
+    // Render Jobs page
+    if (currentPage === 'jobs') {
+        const JobList = require('./components/JobList').default
+        return (
+            <div className="min-h-screen bg-oatmeal-50 dark:bg-oatmeal-950 transition-colors duration-300">
+                <Toaster position="top-right" />
+                <header className="sticky top-0 z-50 backdrop-blur-md bg-oatmeal-50/80 dark:bg-oatmeal-950/80 border-b border-oatmeal-200 dark:border-oatmeal-800">
+                    <div className="max-w-6xl mx-auto px-4 py-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-accent/10 rounded-xl">
+                                        <Languages className="w-6 h-6 text-accent" />
+                                    </div>
+                                    <h1 className="text-xl font-display font-semibold text-oatmeal-900 dark:text-oatmeal-50">
+                                        Translate
+                                    </h1>
+                                </div>
+                                <nav className="flex items-center gap-1">
+                                    <button onClick={() => setCurrentPage('translate')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Translate</button>
+                                    <button onClick={() => setCurrentPage('models')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Models</button>
+                                    <button onClick={() => setCurrentPage('jobs')} className="px-3 py-1.5 text-sm rounded-lg bg-accent/10 text-accent">Jobs</button>
+                                    <button onClick={() => setCurrentPage('settings')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Settings</button>
+                                </nav>
+                            </div>
+                            <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-lg bg-oatmeal-100 dark:bg-oatmeal-800 hover:bg-oatmeal-200 dark:hover:bg-oatmeal-700 transition-colors">
+                                {darkMode ? <Sun className="w-5 h-5 text-oatmeal-300" /> : <Moon className="w-5 h-5 text-oatmeal-600" />}
+                            </button>
+                        </div>
+                    </div>
+                </header>
+                <JobList />
+            </div>
+        )
+    }
+
+    // Render Settings page
+    if (currentPage === 'settings') {
+        const Settings = require('./pages/Settings').default
+        return (
+            <div className="min-h-screen bg-oatmeal-50 dark:bg-oatmeal-950 transition-colors duration-300">
+                <Toaster position="top-right" />
+                <header className="sticky top-0 z-50 backdrop-blur-md bg-oatmeal-50/80 dark:bg-oatmeal-950/80 border-b border-oatmeal-200 dark:border-oatmeal-800">
+                    <div className="max-w-6xl mx-auto px-4 py-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-accent/10 rounded-xl">
+                                        <Languages className="w-6 h-6 text-accent" />
+                                    </div>
+                                    <h1 className="text-xl font-display font-semibold text-oatmeal-900 dark:text-oatmeal-50">
+                                        Translate
+                                    </h1>
+                                </div>
+                                <nav className="flex items-center gap-1">
+                                    <button onClick={() => setCurrentPage('translate')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Translate</button>
+                                    <button onClick={() => setCurrentPage('models')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Models</button>
+                                    <button onClick={() => setCurrentPage('jobs')} className="px-3 py-1.5 text-sm rounded-lg text-oatmeal-600 dark:text-oatmeal-300 hover:bg-oatmeal-100 dark:hover:bg-oatmeal-800">Jobs</button>
+                                    <button onClick={() => setCurrentPage('settings')} className="px-3 py-1.5 text-sm rounded-lg bg-accent/10 text-accent">Settings</button>
+                                </nav>
+                            </div>
+                            <button onClick={() => setDarkMode(!darkMode)} className="p-2 rounded-lg bg-oatmeal-100 dark:bg-oatmeal-800 hover:bg-oatmeal-200 dark:hover:bg-oatmeal-700 transition-colors">
+                                {darkMode ? <Sun className="w-5 h-5 text-oatmeal-300" /> : <Moon className="w-5 h-5 text-oatmeal-600" />}
+                            </button>
+                        </div>
+                    </div>
+                </header>
+                <Settings />
             </div>
         )
     }
