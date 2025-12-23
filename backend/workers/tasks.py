@@ -130,12 +130,26 @@ async def perform_translation(
         compute_type=settings.compute_type,
     )
     
-    # Handle source language
+    # Handle source language - auto-detect if not specified
     detected_lang = None
     if not source_lang:
-        # Simple auto-detection fallback
-        source_lang = "eng_Latn"
-        detected_lang = source_lang
+        try:
+            from langdetect import detect
+            from nllb_lang_codes import get_nllb_code
+            
+            iso_code = detect(text)
+            nllb_code = get_nllb_code(iso_code)
+            if nllb_code:
+                source_lang = nllb_code
+                detected_lang = iso_code
+            else:
+                # Fallback to English if detection fails to map
+                source_lang = "eng_Latn"
+                detected_lang = "en"
+        except Exception:
+            # Fallback to English if detection fails
+            source_lang = "eng_Latn"
+            detected_lang = "en"
     
     # Tokenize
     tokenizer.src_lang = source_lang
