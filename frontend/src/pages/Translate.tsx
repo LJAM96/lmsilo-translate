@@ -1,10 +1,19 @@
 import { useState, useEffect } from 'react'
-import { ArrowRightLeft, Copy, Check, Loader2, ChevronDown, RefreshCw } from 'lucide-react'
+import { ArrowRightLeft, Copy, Check, Loader2, ChevronDown, RefreshCw, AlertCircle } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
+import { api } from '../lib/api'
+import DocumentUpload from '../components/DocumentUpload'
 
 interface Language {
     code: string
     name: string
+}
+
+interface Model {
+    id: string
+    is_default: boolean
 }
 
 export default function TranslatePage() {
@@ -17,9 +26,20 @@ export default function TranslatePage() {
     const [copied, setCopied] = useState(false)
     const [detectedLang, setDetectedLang] = useState<string | null>(null)
 
+    // Check for default model
+    const { data: models, isLoading: isLoadingModels } = useQuery<Model[]>({
+        queryKey: ['models'],
+        queryFn: () => api.getModels(),
+    })
+
+    const hasDefaultModel = models?.some(m => m.is_default) ?? false
+    const isDisabled = !hasDefaultModel && !isLoadingModels
+
     useEffect(() => {
-        fetchLanguages()
-    }, [])
+        if (hasDefaultModel) {
+            fetchLanguages()
+        }
+    }, [hasDefaultModel])
 
     const fetchLanguages = async () => {
         try {
@@ -94,132 +114,173 @@ export default function TranslatePage() {
     }
 
     return (
-        <div className="space-y-6">
-            {/* Language Selection */}
-            <div className="flex items-center justify-center gap-4">
-                <div className="flex-1 max-w-xs">
-                    <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                        Source Language
-                    </label>
-                    <div className="relative">
-                        <select
-                            value={sourceLang}
-                            onChange={(e) => setSourceLang(e.target.value)}
-                            className="select w-full"
-                        >
-                            <option value="auto">Auto Detect</option>
-                            {languages.map((lang) => (
-                                <option key={lang.code} value={lang.code}>
-                                    {lang.name}
-                                </option>
-                            ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 pointer-events-none" />
-                    </div>
-                    {detectedLang && (
-                        <p className="mt-1 text-xs text-olive-600 dark:text-olive-400">
-                            Detected: {languages.find(l => l.code === detectedLang)?.name || detectedLang}
+        <div className="space-y-8">
+            {/* Model Warning */}
+            {isDisabled && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-2xl p-6 flex items-start gap-4 animate-fade-in">
+                    <AlertCircle className="w-6 h-6 text-yellow-600 dark:text-yellow-400 flex-shrink-0 mt-1" />
+                    <div>
+                        <h3 className="text-lg font-medium text-yellow-800 dark:text-yellow-200">
+                            No Translation Model Selected
+                        </h3>
+                        <p className="text-yellow-700 dark:text-yellow-300 mt-1 mb-4">
+                            You need to download and select a default translation model before you can use the service.
                         </p>
-                    )}
-                </div>
-
-                <button
-                    onClick={handleSwapLanguages}
-                    disabled={sourceLang === 'auto'}
-                    className="p-3 mt-6 rounded-xl bg-cream-200 dark:bg-dark-100 hover:bg-cream-300 dark:hover:bg-dark-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                    <ArrowRightLeft className="w-5 h-5 text-surface-600 dark:text-surface-300" />
-                </button>
-
-                <div className="flex-1 max-w-xs">
-                    <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
-                        Target Language
-                    </label>
-                    <div className="relative">
-                        <select
-                            value={targetLang}
-                            onChange={(e) => setTargetLang(e.target.value)}
-                            className="select w-full"
+                        <Link
+                            to="/models"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-100 dark:bg-yellow-800 text-yellow-900 dark:text-yellow-100 rounded-xl font-medium hover:bg-yellow-200 dark:hover:bg-yellow-700 transition-colors"
                         >
-                            {languages.map((lang) => (
-                                <option key={lang.code} value={lang.code}>
-                                    {lang.name}
-                                </option>
-                            ))}
-                        </select>
-                        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 pointer-events-none" />
+                            Manage Models
+                        </Link>
                     </div>
                 </div>
+            )}
+
+            {/* Document Translation Section */}
+            <div>
+                <DocumentUpload disabled={isDisabled} />
             </div>
 
-            {/* Text Areas */}
-            <div className="grid md:grid-cols-2 gap-6">
-                {/* Source Text */}
-                <div className="card">
-                    <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-medium text-surface-800 dark:text-cream-100">Source Text</h3>
+            <div className="border-t border-oatmeal-200 dark:border-oatmeal-800" />
+
+            {/* Text Translation Section */}
+            <div className={`space-y-6 ${isDisabled ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+                <div className="max-w-6xl mx-auto px-6">
+                     <h2 className="text-2xl font-display font-bold text-oatmeal-900 dark:text-oatmeal-50 mb-6">
+                        Text Translation
+                    </h2>
+
+                    {/* Language Selection */}
+                    <div className="flex items-center justify-center gap-4 mb-6">
+                        <div className="flex-1 max-w-xs">
+                            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                                Source Language
+                            </label>
+                            <div className="relative">
+                                <select
+                                    value={sourceLang}
+                                    onChange={(e) => setSourceLang(e.target.value)}
+                                    className="select w-full"
+                                    disabled={isDisabled}
+                                >
+                                    <option value="auto">Auto Detect</option>
+                                    {languages.map((lang) => (
+                                        <option key={lang.code} value={lang.code}>
+                                            {lang.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 pointer-events-none" />
+                            </div>
+                            {detectedLang && (
+                                <p className="mt-1 text-xs text-olive-600 dark:text-olive-400">
+                                    Detected: {languages.find(l => l.code === detectedLang)?.name || detectedLang}
+                                </p>
+                            )}
+                        </div>
+
                         <button
-                            onClick={handleClear}
-                            className="text-sm text-surface-500 hover:text-surface-700 dark:hover:text-surface-300"
+                            onClick={handleSwapLanguages}
+                            disabled={sourceLang === 'auto' || isDisabled}
+                            className="p-3 mt-6 rounded-xl bg-cream-200 dark:bg-dark-100 hover:bg-cream-300 dark:hover:bg-dark-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
-                            Clear
+                            <ArrowRightLeft className="w-5 h-5 text-surface-600 dark:text-surface-300" />
+                        </button>
+
+                        <div className="flex-1 max-w-xs">
+                            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+                                Target Language
+                            </label>
+                            <div className="relative">
+                                <select
+                                    value={targetLang}
+                                    onChange={(e) => setTargetLang(e.target.value)}
+                                    className="select w-full"
+                                    disabled={isDisabled}
+                                >
+                                    {languages.map((lang) => (
+                                        <option key={lang.code} value={lang.code}>
+                                            {lang.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 pointer-events-none" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Text Areas */}
+                    <div className="grid md:grid-cols-2 gap-6">
+                        {/* Source Text */}
+                        <div className="card">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-medium text-surface-800 dark:text-cream-100">Source Text</h3>
+                                <button
+                                    onClick={handleClear}
+                                    disabled={isDisabled}
+                                    className="text-sm text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 disabled:opacity-50"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                            <textarea
+                                value={sourceText}
+                                onChange={(e) => setSourceText(e.target.value)}
+                                placeholder="Enter text to translate..."
+                                disabled={isDisabled}
+                                className="input min-h-[200px] resize-none disabled:cursor-not-allowed"
+                            />
+                        </div>
+
+                        {/* Translated Text */}
+                        <div className="card">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-medium text-surface-800 dark:text-cream-100">Translation</h3>
+                                <button
+                                    onClick={handleCopy}
+                                    disabled={!translatedText || isDisabled}
+                                    className="text-sm text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                    {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                                    {copied ? 'Copied' : 'Copy'}
+                                </button>
+                            </div>
+                            <div className="input min-h-[200px] whitespace-pre-wrap">
+                                {translatedText || <span className="text-surface-400">Translation will appear here...</span>}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Translate Button */}
+                    <div className="flex justify-center mt-6">
+                        <button
+                            onClick={handleTranslate}
+                            disabled={isTranslating || !sourceText.trim() || isDisabled}
+                            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isTranslating ? (
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Translating...
+                                </>
+                            ) : (
+                                <>
+                                    <RefreshCw className="w-5 h-5" />
+                                    Translate
+                                </>
+                            )}
                         </button>
                     </div>
-                    <textarea
-                        value={sourceText}
-                        onChange={(e) => setSourceText(e.target.value)}
-                        placeholder="Enter text to translate..."
-                        className="input min-h-[200px] resize-none"
-                    />
-                </div>
 
-                {/* Translated Text */}
-                <div className="card">
-                    <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-medium text-surface-800 dark:text-cream-100">Translation</h3>
-                        <button
-                            onClick={handleCopy}
-                            disabled={!translatedText}
-                            className="text-sm text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 disabled:opacity-50 flex items-center gap-1"
-                        >
-                            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                            {copied ? 'Copied' : 'Copy'}
-                        </button>
-                    </div>
-                    <div className="input min-h-[200px] whitespace-pre-wrap">
-                        {translatedText || <span className="text-surface-400">Translation will appear here...</span>}
+                    {/* Info */}
+                    <div className="text-center text-sm text-surface-500 dark:text-surface-400 max-w-2xl mx-auto mt-8">
+                        <p>
+                            This translation service is powered by Meta's NLLB-200 (No Language Left Behind) model,
+                            supporting over 200 languages. The model runs locally for privacy and can handle
+                            low-resource languages that are often underserved by commercial translation services.
+                        </p>
                     </div>
                 </div>
-            </div>
-
-            {/* Translate Button */}
-            <div className="flex justify-center">
-                <button
-                    onClick={handleTranslate}
-                    disabled={isTranslating || !sourceText.trim()}
-                    className="btn-primary flex items-center gap-2"
-                >
-                    {isTranslating ? (
-                        <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Translating...
-                        </>
-                    ) : (
-                        <>
-                            <RefreshCw className="w-5 h-5" />
-                            Translate
-                        </>
-                    )}
-                </button>
-            </div>
-
-            {/* Info */}
-            <div className="text-center text-sm text-surface-500 dark:text-surface-400 max-w-2xl mx-auto">
-                <p>
-                    This translation service is powered by Meta's NLLB-200 (No Language Left Behind) model,
-                    supporting over 200 languages. The model runs locally for privacy and can handle
-                    low-resource languages that are often underserved by commercial translation services.
-                </p>
             </div>
         </div>
     )

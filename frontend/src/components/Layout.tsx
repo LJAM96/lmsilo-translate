@@ -1,12 +1,12 @@
 import { Outlet, NavLink } from 'react-router-dom'
-import { Languages, FileText, Layers, Settings, Moon, Sun } from 'lucide-react'
-import { useTheme } from '../lib/theme'
+import { Languages, Layers, Settings, Moon, Sun } from 'lucide-react'
+import { useTheme } from '../lib/theme.ts'
 
 export default function Layout() {
     const { isDark, toggle } = useTheme()
 
     return (
-        <div className="min-h-screen bg-cream-100 dark:bg-dark-400 transition-colors duration-300">
+        <div className="min-h-screen bg-cream-100 dark:bg-dark-500 transition-colors duration-300 flex flex-col">
             {/* Header */}
             <header className="bg-white dark:bg-dark-300 border-b border-cream-200 dark:border-dark-100 sticky top-0 z-50 transition-colors duration-300">
                 <div className="max-w-7xl mx-auto px-6 py-4">
@@ -21,8 +21,14 @@ export default function Layout() {
 
                         {/* Navigation */}
                         <nav className="flex items-center gap-2">
+                             <a
+                                href="http://localhost:5173"
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-200 text-surface-600 dark:text-cream-400 hover:bg-cream-200 dark:hover:bg-dark-100 hover:text-surface-800 dark:hover:text-cream-200"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-home w-4 h-4"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                                <span>Home</span>
+                            </a>
                             <NavItem to="/" icon={Languages}>Translate</NavItem>
-                            <NavItem to="/documents" icon={FileText}>Documents</NavItem>
                             <NavItem to="/models" icon={Layers}>Models</NavItem>
                             <NavItem to="/settings" icon={Settings}>Settings</NavItem>
 

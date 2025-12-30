@@ -8,8 +8,10 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@lmsilo/shared-ui": "file:../../shared-ui",
         "@tanstack/react-query": "^5.17.0",
         "axios": "^1.6.0",
+        "date-fns": "^4.1.0",
         "lucide-react": "^0.303.0",
         "react": "^18.2.0",
         "react-dom": "^18.2.0",
